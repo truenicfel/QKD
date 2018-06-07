@@ -1,4 +1,12 @@
 #
+# Bob.py
+#
+#	Example for Quantum Key Distribution using the BB84 protocol. Communicates
+#	with Alice.py and Eve.py.
+#
+# Author: Nico Daßler <dassler@hm.edu>
+
+#
 # Copyright (c) 2017, Stephanie Wehner and Axel Dahlberg
 # All rights reserved.
 #
@@ -30,18 +38,13 @@
 from SimulaQron.cqc.pythonLib.cqc import *
 import random
 
+import Utility
 
 # Receives a single Qubit and randomly decides in which basis to measure
-def receiveQubit():
-
-	# Initialize the connection
-	Bob=CQCConnection("Bob")
-
-	# decide in which basis to measure
-	hadamardBasis = random.randint(0, 1)
+def receiveQubit(cqcConnection, hadamardBasis):
 
 	# Receive qubit from Alice (via Eve)
-	qubit=Bob.recvQubit()
+	qubit=cqcConnection.recvQubit()
 
 	# apply hadamard if we want to measure in hadamardBasis
 	if hadamardBasis:
@@ -50,12 +53,53 @@ def receiveQubit():
 	# measure in standard basis
 	message = qubit.measure()
 
-	# simple printing
-	print("Bob retrived the message '{}' from Alice.".format(message))
+	return message
 
-	# Stop the connection
-	Bob.close()
+# Receive 100 qubits. The first results element is the basis' that were used in
+# list containing 0s (normal basis) and 1s (hadamard basis). The other result is
+# the actual result of the measurements.
+def receive100Qubits(cqcConnection):
+
+	# stores the results of measurements
+	measurements = list()
+
+	# stores the basis' used
+	basisUsed = list()
+
+	# receive 100 times
+	for run in range(0, 10):
+
+		# decide in which basis to measure
+		hadamardBasis = random.randint(0, 1)
+
+		# append used basis
+		basisUsed.append(hadamardBasis)
+
+		# add to measurements list
+		measurements.append(receiveQubit(cqcConnection, hadamardBasis))
+
+	return (basisUsed, measurements)
 
 
+# Initialize the connection
+Bob=CQCConnection("Bob")
 
-receiveQubit()
+# start a classical server
+Bob.startClassicalServer()
+
+# now receive the 100 qubits
+results = receive100Qubits(Bob);
+
+# send the basises used to alice
+Bob.sendClassical("Alice", results[0])
+
+# receive basises used from alice
+aliceBasis = Bob.recvClassical()
+
+key = Utility.filterKey(aliceBasis, results[0], results[1])
+
+# print Key
+print("Key found by Bob: {}".format(key))
+
+# Stop the connection
+Bob.close()

@@ -36,39 +36,60 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from SimulaQron.cqc.pythonLib.cqc import *
-
 import random
 
+import Utility
 
+# Sends 100 qubits to Bob and returns the used basis. The format
+# of the result is a list containing 1s and 0s for hadamard basis
+# and normal basis. It also returns the key bits.
+def send100Qubits(cqcConnection):
 
-#####################################################################################################
-#
-# main
-#
-def main():
+	basisUsed = list()
+	keyBits = list()
 
-	# Initialize the connection
-	Alice=CQCConnection("Alice")
+	for run in range(0, 10):
+		# Create a qubit
+		qubitToSend=qubit(cqcConnection)
 
-	# Create a qubit
-	qubitToSend=qubit(Alice)
+		# randomly generate if not should be applied
+		notOperation = random.randint(0, 1)
+		# randomly generate if hadamard should be applied
+		hadamardOperation = random.randint(0,1)
 
-	# this specifies in which state we will send the qubit
-	notOperation = True			# states if not should be applied
-	hadamardOperation = True	# states if hadamard should be applied
+		# apply operations
+		if notOperation:
+			qubitToSend.X()
+		if hadamardOperation:
+			qubitToSend.H()
 
-	# apply operations
-	if notOperation:
-		qubitToSend.X()
-	if hadamardOperation:
-		qubitToSend.H()
+		# append hadamard basis used
+		basisUsed.append(hadamardOperation)
 
-	# Send qubit to Bob
-	Alice.sendQubit(qubitToSend, "Bob")
+		# append key bit (it is given by the notOperation: if not operation was
+		# applied to the qubit the bit which will be send is 1)
+		keyBits.append(notOperation)
 
-	# Stop the connections
-	Alice.close()
+		# Send qubit to Bob
+		cqcConnection.sendQubit(qubitToSend, "Bob")
 
+	return (basisUsed, keyBits)
 
-##################################################################################################
-main()
+# Initialize the connection
+Alice=CQCConnection("Alice")
+
+results = send100Qubits(Alice)
+
+# send actually used basises to bob
+Alice.sendClassical("Bob", results[0])
+
+# receive basises used from bob
+bobBasis = Alice.recvClassical()
+
+# filter key
+key = Utility.filterKey(results[0], bobBasis, results[1])
+
+print("Key found by Alice: {}".format(key))
+
+# Stop the connections
+Alice.close()
