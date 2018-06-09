@@ -37,6 +37,9 @@
 
 from SimulaQron.cqc.pythonLib.cqc import *
 import random
+import time
+
+import ClassicConnection
 
 # This will take a part of the key (one third) and do a statistical analysis
 # to check if eve tried to listen in.
@@ -57,7 +60,7 @@ def verifyKeyWithBob(cqcConnection, key):
 
 # takes cqcConnection and returns key as array. Alice will be the initiator
 # of the whole process.
-def createKey(cqcConnection, keyLength):
+def createKey(cqcConnection, serverSocket, keyLength):
 	# counts the key bits that have been established
 	keyCounter = 0
 
@@ -65,13 +68,14 @@ def createKey(cqcConnection, keyLength):
 	keyBits = list()
 
 	# keep going until we have the desired key length
-	while keyCounter < keyLength - 1:
+	while keyCounter < keyLength:
 
-		# send bob if we are finished (0 not finished; 1 finished) (status)
-		cqcConnection.sendClassical("Bob", 0)
+		# send Eve if we are finished (0 not finished; 1 finished) (status)
+		# this is how we simulate an interception
+		ClassicConnection.sendIntToLocalhost(0, ClassicConnection.evePort)
 
 		# Create a qubit
-		qubitToSend = qubit(cqcConnection)
+		qubitToSend = qubit(cqcConnection, print_info=False)
 
 		# prepare qubit
 		# randomly generate if not should be applied
@@ -81,15 +85,17 @@ def createKey(cqcConnection, keyLength):
 
 		# apply operations
 		if notOperation:
-			qubitToSend.X()
+			qubitToSend.X(print_info=False)
 		if hadamardOperation:
-			qubitToSend.H()
+			qubitToSend.H(print_info=False)
 
 		# dont forget to send the qubit to Bob
-		cqcConnection.sendQubit(qubitToSend, "Bob")
+		# this is how we simulate the interception
+		cqcConnection.sendQubit(qubitToSend, "Eve", print_info=False)
+
 
 		# now wait until bob sends the basis he used (0 for normal; 1 for hadamard)
-		bobBasis = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
+		bobBasis = ClassicConnection.receiveInt(serverSocket)
 
 		# if they used the same basis everything is alright and we got our first bit
 		if (bobBasis == hadamardOperation):
@@ -99,21 +105,32 @@ def createKey(cqcConnection, keyLength):
 
 		# doesn't matter if bob used the right basis we have to tell him
 		# which one we used
-		cqcConnection.sendClassical("Bob", hadamardOperation)
+		ClassicConnection.sendIntToLocalhost(hadamardOperation, ClassicConnection.bobPort)
 
 	# key bits should have keyLength length now
 
 	# we can now tell bob that the key transmission is finished
-	cqcConnection.sendClassical("Bob", 1)
+	# this is how we simulate the interception
+	ClassicConnection.sendIntToLocalhost(1, ClassicConnection.evePort)
 
 	return keyBits
 
+print("")
+print("Results:")
+print("#########################")
 # Initialize the connection
 Alice=CQCConnection("Alice")
 
-key = createKey(Alice, 20)
+# initialize sockets
+aliceServer = ClassicConnection.createLocalhostServerSocket(ClassicConnection.alicePort)
+
+time.sleep(3)
+
+key = createKey(Alice, aliceServer, 10)
 
 print("Key found by Alice: {}".format(key))
 
 # Stop the connections
 Alice.close()
+
+ClassicConnection.closeSocket(aliceServer)

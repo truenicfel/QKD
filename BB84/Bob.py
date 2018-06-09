@@ -37,38 +37,41 @@
 
 from SimulaQron.cqc.pythonLib.cqc import *
 import random
+import time
+
+import ClassicConnection
 
 # takes cqcConnection and returns key as array. This has to wait for Alice
 # to start the process.
-def receiveToCreateKey(cqcConnection):
+def receiveToCreateKey(cqcConnection, serverSocket):
 	# stores the key bits
 	keyBits = list()
 
 	# receive first status information from alice (0 not finished; 1 finished)
-	status = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
+	status = ClassicConnection.receiveInt(serverSocket)
 
 	# keep going until alice says we are done
 	while status == 0:
 
 		# alice should now send us a qubit that she prepared to contain a key bit
-		receivedQubit = cqcConnection.recvQubit()
+		receivedQubit = cqcConnection.recvQubit(print_info=False)
 
 		# decide if measurement should happen in hadamard basis
 		hadamardBasis = random.randint(0,1)
 
 		# apply operation
 		if hadamardBasis:
-			receivedQubit.H()
+			receivedQubit.H(print_info=False)
 
 		# measure to obtain classical bit
-		potentialKeyBit = receivedQubit.measure()
+		potentialKeyBit = receivedQubit.measure(print_info=False)
 
 		# send the basis we used to Alice
-		cqcConnection.sendClassical("Alice", hadamardBasis)
+		ClassicConnection.sendIntToLocalhost(hadamardBasis, ClassicConnection.alicePort)
 
 		# now wait until alice sends the basis she actually used
 		# (0 for normal; 1 for hadamard)
-		aliceBasis = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
+		aliceBasis = ClassicConnection.receiveInt(serverSocket)
 
 		# if they used the same basis everything is alright and we got our first bit
 		if (aliceBasis == hadamardBasis):
@@ -76,7 +79,7 @@ def receiveToCreateKey(cqcConnection):
 			keyBits.append(potentialKeyBit)
 
 		# get status info if we should continue
-		status = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
+		status = ClassicConnection.receiveInt(serverSocket)
 
 	# key bits should all be received
 
@@ -84,13 +87,18 @@ def receiveToCreateKey(cqcConnection):
 
 # Initialize the connection
 Bob=CQCConnection("Bob")
-Bob.startClassicalServer()
 
-key = receiveToCreateKey(Bob)
+# initialize sockets
+bobServer = ClassicConnection.createLocalhostServerSocket(ClassicConnection.bobPort)
+
+time.sleep(3)
+
+key = receiveToCreateKey(Bob, bobServer)
 
 # print Key
 print("Key found by Bob: {}".format(key))
 
 # Stop the connection
-Bob.closeClassicalServer()
 Bob.close()
+
+ClassicConnection.closeSocket(bobServer)
