@@ -38,68 +38,59 @@
 from SimulaQron.cqc.pythonLib.cqc import *
 import random
 
-import Utility
+# takes cqcConnection and returns key as array. This has to wait for Alice
+# to start the process.
+def receiveToCreateKey(cqcConnection):
+	# stores the key bits
+	keyBits = list()
 
-# Receives a single Qubit and randomly decides in which basis to measure
-def receiveQubit(cqcConnection, hadamardBasis):
+	# receive first status information from alice (0 not finished; 1 finished)
+	status = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
 
-	# Receive qubit from Alice (via Eve)
-	qubit=cqcConnection.recvQubit()
+	# keep going until alice says we are done
+	while status == 0:
 
-	# apply hadamard if we want to measure in hadamardBasis
-	if hadamardBasis:
-		qubit.H()
+		# alice should now send us a qubit that she prepared to contain a key bit
+		receivedQubit = cqcConnection.recvQubit()
 
-	# measure in standard basis
-	message = qubit.measure()
+		# decide if measurement should happen in hadamard basis
+		hadamardBasis = random.randint(0,1)
 
-	return message
+		# apply operation
+		if hadamardBasis:
+			receivedQubit.H()
 
-# Receive 100 qubits. The first results element is the basis' that were used in
-# list containing 0s (normal basis) and 1s (hadamard basis). The other result is
-# the actual result of the measurements.
-def receive100Qubits(cqcConnection):
+		# measure to obtain classical bit
+		potentialKeyBit = receivedQubit.measure()
 
-	# stores the results of measurements
-	measurements = list()
+		# send the basis we used to Alice
+		cqcConnection.sendClassical("Alice", hadamardBasis)
 
-	# stores the basis' used
-	basisUsed = list()
+		# now wait until alice sends the basis she actually used
+		# (0 for normal; 1 for hadamard)
+		aliceBasis = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
 
-	# receive 100 times
-	for run in range(0, 10):
+		# if they used the same basis everything is alright and we got our first bit
+		if (aliceBasis == hadamardBasis):
+			# append to keyBits
+			keyBits.append(potentialKeyBit)
 
-		# decide in which basis to measure
-		hadamardBasis = random.randint(0, 1)
+		# get status info if we should continue
+		status = int.from_bytes(cqcConnection.recvClassical(timout=10, msg_size=1),  byteorder='little')
 
-		# append used basis
-		basisUsed.append(hadamardBasis)
+	# key bits should all be received
 
-		# add to measurements list
-		measurements.append(receiveQubit(cqcConnection, hadamardBasis))
-
-	return (basisUsed, measurements)
-
+	return keyBits
 
 # Initialize the connection
 Bob=CQCConnection("Bob")
-
-# start a classical server
 Bob.startClassicalServer()
 
-# now receive the 100 qubits
-results = receive100Qubits(Bob);
-
-# send the basises used to alice
-Bob.sendClassical("Alice", results[0])
-
-# receive basises used from alice
-aliceBasis = Bob.recvClassical()
-
-key = Utility.filterKey(aliceBasis, results[0], results[1])
+key = receiveToCreateKey(Bob)
 
 # print Key
 print("Key found by Bob: {}".format(key))
 
 # Stop the connection
+Bob.closeClassicalServer()
 Bob.close()
